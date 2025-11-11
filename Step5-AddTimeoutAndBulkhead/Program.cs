@@ -26,9 +26,10 @@ builder.Host.UseSerilog();
 
 // Configure OpenTelemetry
 builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("AlertPredictor"))
     .WithTracing(tracerProviderBuilder =>
         tracerProviderBuilder
-            .AddSource("SelfLearningAPI")
+            .AddSource("AlertPredictor")
             .AddAspNetCoreInstrumentation()
             .AddConsoleExporter());
 
@@ -44,32 +45,27 @@ var modelService = app.Services.GetRequiredService<ModelService>();
 modelService.TrainInitialModel();
 
 // Activity source for tracing
-var activitySource = new ActivitySource("SelfLearningAPI");
+var activitySource = new ActivitySource("AlertPredictor");
 
 // TASK 1: Uncomment the timeout policy below
-// var timeoutPolicy = new ResiliencePipelineBuilder()
-//     .AddTimeout(new TimeoutStrategyOptions
-//     {
-//         Timeout = TimeSpan.FromSeconds(5),
-//         OnTimeout = args =>
-//         {
-//             Log.Error("Request timed out after {Timeout} seconds", args.Timeout.TotalSeconds);
-//             return ValueTask.CompletedTask;
-//         }
-//     })
-//     .Build();
+var timeoutPolicy = new ResiliencePipelineBuilder()
+    .AddTimeout(new TimeoutStrategyOptions
+    {
+        Timeout = TimeSpan.FromSeconds(5),
+        OnTimeout = args =>
+        {
+            Log.Error("Request timed out after {Timeout} seconds", args.Timeout.TotalSeconds);
+            return ValueTask.CompletedTask;
+        }
+    })
+    .Build();
 
 // TASK 2: Uncomment the bulkhead policy below
 // var retrainBulkhead = new ResiliencePipelineBuilder()
-//     .AddConcurrencyLimiter(new ConcurrencyLimiterOptions
+//     .AddRateLimiter(new ConcurrencyLimiterOptions
 //     {
 //         PermitLimit = 2,
-//         QueueLimit = 5,
-//         OnRejected = args =>
-//         {
-//             Log.Warning("Retrain request rejected - bulkhead full (limit: 2 concurrent, 5 queued)");
-//             return ValueTask.CompletedTask;
-//         }
+//         QueueLimit = 5
 //     })
 //     .Build();
 
@@ -118,15 +114,15 @@ var circuitBreakerPolicy = new ResiliencePipelineBuilder()
 // TASK 3: Add timeout to the combined policy
 // Uncomment the .AddTimeout() section below and add it at the START of the pipeline builder
 var combinedPolicy = new ResiliencePipelineBuilder()
-    // .AddTimeout(new TimeoutStrategyOptions
-    // {
-    //     Timeout = TimeSpan.FromSeconds(5),
-    //     OnTimeout = args =>
-    //     {
-    //         Log.Error("Request timed out after {Timeout} seconds", args.Timeout.TotalSeconds);
-    //         return ValueTask.CompletedTask;
-    //     }
-    // })
+    .AddTimeout(new TimeoutStrategyOptions
+    {
+        Timeout = TimeSpan.FromSeconds(5),
+        OnTimeout = args =>
+        {
+            Log.Error("Request timed out after {Timeout} seconds", args.Timeout.TotalSeconds);
+            return ValueTask.CompletedTask;
+        }
+    })
     .AddRetry(new RetryStrategyOptions
     {
         MaxRetryAttempts = 3,
@@ -267,12 +263,12 @@ app.MapGet("/predict/{threshold:double}", (double threshold, ObservationStore ob
     }
     // TASK 4: Add TimeoutRejectedException handler
     // Uncomment the catch block below and place it BEFORE BrokenCircuitException
-    // catch (TimeoutRejectedException)
-    // {
-    //     Log.Error("Request timed out");
-    //     activity?.SetTag("timeout", true);
-    //     return Results.StatusCode(504); // Gateway Timeout
-    // }
+    catch (TimeoutRejectedException)
+    {
+        Log.Error("Request timed out");
+        activity?.SetTag("timeout", true);
+        return Results.StatusCode(504); // Gateway Timeout
+    }
     catch (BrokenCircuitException)
     {
         Log.Warning("Circuit is OPEN - using fallback prediction");
@@ -356,14 +352,13 @@ app.MapPost("/retrain", (ObservationStore observationStore, ModelService modelSe
 {
     using var activity = activitySource.StartActivity("RetrainModel");
 
-    // TASK 5 - Part A: Wrap the training logic below with retrainBulkhead.Execute()
-    // Move all the code below (from Log.Information to the return statement) inside:
-    // var result = retrainBulkhead.Execute(() => { ... return new { ... }; });
-
     Log.Information("Manual retrain requested");
 
     try
     {
+        // TASK 5 - Part A: Wrap the training logic below with retrainBulkhead.Execute()
+        // var result = retrainBulkhead.Execute(() =>
+        // {
         var labeledObservations = observationStore.GetLabeled();
         if (labeledObservations.Count < 10)
         {
@@ -405,9 +400,11 @@ app.MapPost("/retrain", (ObservationStore observationStore, ModelService modelSe
             trainingDataCount = trainingData.Length,
             accuracy = metrics.Accuracy
         });
+        // });
+
+        // return result;
     }
     // TASK 5 - Part B: Add RateLimiterRejectedException handler
-    // Uncomment the catch block below:
     // catch (RateLimiterRejectedException)
     // {
     //     Log.Warning("Retrain request rejected - bulkhead full");
