@@ -61,13 +61,9 @@ var timeoutPolicy = new ResiliencePipelineBuilder()
     .Build();
 
 // TASK 2: Uncomment the bulkhead policy below
-// var retrainBulkhead = new ResiliencePipelineBuilder()
-//     .AddRateLimiter(new ConcurrencyLimiterOptions
-//     {
-//         PermitLimit = 2,
-//         QueueLimit = 5
-//     })
-//     .Build();
+var retrainBulkhead = new ResiliencePipelineBuilder()
+    .AddConcurrencyLimiter(2, 5)
+    .Build();
 
 // Retry policy from Step 2
 var retryPolicy = new ResiliencePipelineBuilder()

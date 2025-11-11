@@ -124,20 +124,26 @@ $r.modelVersion
 # Multiple fast predictions
 for ($i = 1; $i -le 5; $i++) {
     $start = Get-Date
-    $r = Invoke-RestMethod -Uri "http://localhost:5000/predict/0.7"
-    $duration = (Get-Date) - $start
-    Write-Host "Request $i: $($duration.TotalMilliseconds)ms - Timeout: No"
+    try {
+        $r = Invoke-RestMethod -Uri "http://localhost:5000/predict/0.7"
+        $duration = (Get-Date) - $start
+        Write-Host "Request ${i}: $([int]$duration.TotalMilliseconds)ms - Success"
+    }
+    catch {
+        $duration = (Get-Date) - $start
+        Write-Host "Request ${i}: $([int]$duration.TotalMilliseconds)ms - Failed"
+    }
 }
 ```
 
 **Expected output:**
 
 ```
-Request 1: 145ms - Timeout: No
-Request 2: 152ms - Timeout: No
-Request 3: 148ms - Timeout: No
-Request 4: 151ms - Timeout: No
-Request 5: 149ms - Timeout: No
+Request 1: 145ms - Success
+Request 2: 152ms - Success
+Request 3: 148ms - Success
+Request 4: 151ms - Success
+Request 5: 149ms - Success
 ```
 
 **Pattern Behavior:** Timeout remains transparent during healthy operation. No performance overhead.
